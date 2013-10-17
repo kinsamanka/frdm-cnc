@@ -1,0 +1,11 @@
+.deps
+.dep
+*.o
+*.dis
+*.elf
+*.map
+*.orig
+*.hex
+*.lst
+*.bin
+*.s19
