@@ -41,9 +41,10 @@ void __init_hardware(void) {
 
 	/* Set the interrupt vector table position */
 	SCB_VTOR = (uint32_t)__vector_table;
+#if 0
 	/* Disable the WDOG module */
 	SIM_COPC = SIM_COPC_COPT(0x00);                                   
-
+#endif
 	/* System clock initialization */
 	/* Enable clock gate for ports to enable pin routing */
 	SIM_SCGC5 |= SIM_SCGC5_PORTA_MASK;

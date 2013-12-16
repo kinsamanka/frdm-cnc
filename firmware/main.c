@@ -322,18 +322,22 @@ static void update_outputs(uint32_t x) {
 		EN_X_LO;
 	else
 		EN_X_HI;
+	
 	if (x & (1 << 1))
 		EN_Y_LO;
 	else
 		EN_Y_HI;
+	
 	if (x & (1 << 2))
 		EN_Z_LO;
 	else
 		EN_Z_HI;
+	
 	if (x & (1 << 3))
 		EN_A_LO;
 	else
 		EN_A_HI;
+	
 	if (x & (1 << 4))
 		EN_B_LO;
 	else
@@ -463,6 +467,10 @@ int main(void) {
 		if (!(counter++ % (spi_timeout ? 0xA000 : 0xF000))) {
 			LED_TOGGLE;
 		}
+		
+		/* reset watchdog sequence*/
+		SIM_SRVCOP = SIM_SRVCOP_SRVCOP(0x55);
+		SIM_SRVCOP = SIM_SRVCOP_SRVCOP(0xAA);
 	}
 	return 0;
 }
