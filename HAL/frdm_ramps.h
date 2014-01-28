@@ -15,18 +15,18 @@
  *    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
-#ifndef HAL_FRDM_H
-#define HAL_FRDM_H
+#ifndef FRDM_RAMPS_H
+#define FRDM_RAMPS_H
 
 #define SPICLKDIV		16		/* ~15 Mhz */
-#define NUMAXES			3		/* X Y Z*/
+#define NUMAXES			4		/* X Y Z A*/
 
 #define SPIBUFSIZE		32		/* SPI buffer size */
 #define BUFSIZE			(SPIBUFSIZE/4)
 
 #define STEPBIT			23		/* bit location in DDS accum */
-#define STEP_MASK		(1L << STEPBIT)
-#define BASEFREQ		40000ul		/* Base freq of the stepgen in Hz */
+#define STEP_MASK		(1<<STEPBIT)
+#define BASEFREQ		80000ul		/* Base freq of the stepgen in Hz */
 
 #define PERIODFP 		((double)1.0 / (double)(BASEFREQ))
 #define VELSCALE		((double)STEP_MASK * PERIODFP)
@@ -34,6 +34,8 @@
 
 #define get_position(a)		(rxBuf[1 + (a)])
 #define get_inputs()		(rxBuf[1 + NUMAXES])
+#define set_outputs		(txBuf[1 + NUMAXES])
+#define get_adc(a)		(rxBuf[2 + NUMAXES + a])
 #define update_velocity(a, b)	(txBuf[1 + (a)] = (b))
 
 /* Broadcom defines */

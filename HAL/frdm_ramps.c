@@ -27,7 +27,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "hal_frdm.h"
+#include "frdm_ramps.h"
 
 #if !defined(BUILD_SYS_USER_DSO)
 #error "This driver is for usermode threads only"
@@ -37,34 +37,37 @@
 #error "This driver is currently for the Raspberry Pi platform only"
 #endif
 
-#define MODNAME "hal_frdm"
+#define MODNAME "frdm_ramps"
 #define PREFIX "frdm"
 
 MODULE_AUTHOR("GP Orcullo");
-MODULE_DESCRIPTION("Driver for FRDM-KL25Z board on Raspberry Pi using SPI");
+MODULE_DESCRIPTION("Driver for FRDM-KL25Z board with RAMPS1.4s connected to a Raspberry Pi using SPI");
 MODULE_LICENSE("GPL v2");
 
 static int stepwidth = 1;
 RTAPI_MP_INT(stepwidth, "Step width in 1/BASEFREQ");
 
-static long pwmfreq = 1000;
+static long pwmfreq = 500;
 RTAPI_MP_LONG(pwmfreq, "PWM frequency in Hz");
 
 typedef struct {
 	hal_float_t *position_cmd[NUMAXES],
 	            *position_fb[NUMAXES],
-	            *pwm_duty[2];
-	hal_bit_t   *x_lim, *y_lim, *z_lim,
-		    *spindle_en, *spindle_dir,
-	            *motor_en, *coolant_en,
-		    *abort, *hold, *resume,
-	            *ready;
+	            *pwm_duty[3],
+		    *adc_in[3];
+	hal_bit_t   *x_min, *y_min, *z_min,
+		    *x_max, *y_max, *z_max,
+		    *en_x, *en_y, *en_z,
+		    *en_a, *en_b,
+	            *ready, *spi_fault;
 	hal_float_t scale[NUMAXES],
 	            maxaccel[NUMAXES],
-	            pwm_scale[2];
-} spi_data_t;
+	            adc_scale[3],
+		    pwm_scale[3];
+	hal_u32_t   *test, *cnt;
+} data_t;
 
-static spi_data_t *spi_data;
+static data_t *data;
 
 static int comp_id;
 static const char *modname = MODNAME;
@@ -73,7 +76,7 @@ static const char *prefix = PREFIX;
 volatile unsigned *gpio, *spi;
 
 volatile s32 txBuf[BUFSIZE], rxBuf[BUFSIZE];
-static u32 pwm_period = 0;
+static int pwm_period = 0;
 
 static double dt = 0,				/* update_freq period in seconds */
               recip_dt = 0,			/* reciprocal of period, avoids divides */
@@ -109,8 +112,8 @@ int rtapi_app_main(void) {
 	}
 
 	/* allocate shared memory */
-	spi_data = hal_malloc(sizeof(spi_data_t));
-	if (spi_data == 0) {
+	data = hal_malloc(sizeof(data_t));
+	if (data == 0) {
 		rtapi_print_msg(RTAPI_MSG_ERR, "%s: ERROR: hal_malloc() failed\n",
 		        modname);
 		hal_exit(comp_id);
@@ -127,105 +130,134 @@ int rtapi_app_main(void) {
 
 	setup_gpio();
 
-	pwm_period = (40000000ul/pwmfreq) - 1;	/* PeripheralClock/pwmfreq - 1 */
+	pwm_period = (8000000ul/pwmfreq);
 
 	txBuf[0] = 0x4746433E;			/* this is config data (>CFG) */
 	txBuf[1] = stepwidth;
-	txBuf[2] = pwm_period;
+	txBuf[2] = pwm_period - 1;
 	transfer_data();			/* send config data */
 
 	max_vel = BASEFREQ/(4.0 * stepwidth);	/* calculate velocity limit */
 
 	/* export pins and parameters */
 	for (n=0; n<NUMAXES; n++) {
-		retval = hal_pin_float_newf(HAL_IN, &(spi_data->position_cmd[n]),
-		        comp_id, "%s.%01d.position-cmd", prefix, n);
+		retval = hal_pin_float_newf(HAL_IN, &(data->position_cmd[n]),
+		        comp_id, "%s.axis.%01d.position-cmd", prefix, n);
 		if (retval < 0) goto error;
-		*(spi_data->position_cmd[n]) = 0.0;
+		*(data->position_cmd[n]) = 0.0;
 
-		retval = hal_pin_float_newf(HAL_OUT, &(spi_data->position_fb[n]),
-		        comp_id, "%s.%01d.position-fb", prefix, n);
+		retval = hal_pin_float_newf(HAL_OUT, &(data->position_fb[n]),
+		        comp_id, "%s.axis.%01d.position-fb", prefix, n);
 		if (retval < 0) goto error;
-		*(spi_data->position_fb[n]) = 0.0;
+		*(data->position_fb[n]) = 0.0;
 
-		retval = hal_param_float_newf(HAL_RW, &(spi_data->scale[n]),
-		        comp_id, "%s.%01d.scale", prefix, n);
+		retval = hal_param_float_newf(HAL_RW, &(data->scale[n]),
+		        comp_id, "%s.axis.%01d.scale", prefix, n);
 		if (retval < 0) goto error;
-		spi_data->scale[n] = 1.0;
+		data->scale[n] = 1.0;
 
-		retval = hal_param_float_newf(HAL_RW, &(spi_data->maxaccel[n]),
-		        comp_id, "%s.%01d.maxaccel", prefix, n);
+		retval = hal_param_float_newf(HAL_RW, &(data->maxaccel[n]),
+		        comp_id, "%s.axis.%01d.maxaccel", prefix, n);
 		if (retval < 0) goto error;
-		spi_data->maxaccel[n] = 1.0;
+		data->maxaccel[n] = 1.0;
 	}
 
-	for (n=0; n < 2; n++) {
-		retval = hal_pin_float_newf(HAL_IN, &(spi_data->pwm_duty[n]),
+	for (n=0; n < 3; n++) {
+		retval = hal_pin_float_newf(HAL_IN, &(data->pwm_duty[n]),
 		        comp_id, "%s.pwm.%01d.duty", prefix, n);
 		if (retval < 0) goto error;
-		*(spi_data->pwm_duty[n]) = 0.0;
+		*(data->pwm_duty[n]) = 0.0;
 
-		retval = hal_param_float_newf(HAL_RW, &(spi_data->pwm_scale[n]),
+		retval = hal_param_float_newf(HAL_RW, &(data->pwm_scale[n]),
 			comp_id,"%s.pwm.%01d.scale", prefix);
 		if (retval < 0) goto error;
-		spi_data->pwm_scale[n] = 1.0;
+		data->pwm_scale[n] = 1.0;
+
+		retval = hal_param_float_newf(HAL_RW, &(data->adc_scale[n]),
+			comp_id,"%s.adc.%01d.scale", prefix);
+		if (retval < 0) goto error;
+		data->adc_scale[n] = 1.0;
+
+		retval = hal_pin_float_newf(HAL_OUT, &(data->adc_in[n]),
+		        comp_id, "%s.adc.%01d.val", prefix, n);
+		if (retval < 0) goto error;
+		*(data->adc_in[n]) = 0.0;
 	}
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->ready), comp_id,
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->ready), comp_id,
 	        "%s.ready", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->ready) = 0;
+	*(data->ready) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->abort), comp_id,
-	        "%s.abort", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->x_min), comp_id,
+	        "%s.axis.0.min", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->abort) = 0;
+	*(data->x_min) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->hold), comp_id,
-	        "%s.hold", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->x_max), comp_id,
+	        "%s.axis.0.max", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->hold) = 0;
+	*(data->x_max) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->resume), comp_id,
-	        "%s.resume", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->y_min), comp_id,
+	        "%s.axis.1.min", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->resume) = 0;
+	*(data->y_min) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->x_lim), comp_id,
-	        "%s.x_limit", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->y_max), comp_id,
+	        "%s.axis.1.max", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->x_lim) = 0;
+	*(data->y_max) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->y_lim), comp_id,
-	        "%s.y_limit", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->z_min), comp_id,
+	        "%s.axis.2.min", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->y_lim) = 0;
+	*(data->z_min) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(spi_data->z_lim), comp_id,
-	        "%s.z_limit", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->z_max), comp_id,
+	        "%s.axis.2.max", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->z_lim) = 0;
+	*(data->z_max) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(spi_data->spindle_en), comp_id,
-	        "%s.spindle_enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->en_x), comp_id,
+	        "%s.axis.0.enable", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->spindle_en) = 0;
+	*(data->en_x) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(spi_data->spindle_dir), comp_id,
-	        "%s.spindle_direction", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->en_y), comp_id,
+	        "%s.axis.1.enable", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->spindle_dir) = 0;
+	*(data->en_y) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(spi_data->motor_en), comp_id,
-	        "%s.motor_enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->en_z), comp_id,
+	        "%s.axis.2.enable", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->motor_en) = 0;
+	*(data->en_z) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(spi_data->coolant_en), comp_id,
-	        "%s.coolant_enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->en_a), comp_id,
+	        "%s.axis.3.enable", prefix);
 	if (retval < 0) goto error;
-	*(spi_data->coolant_en) = 0;
+	*(data->en_a) = 0;
 
+	retval = hal_pin_bit_newf(HAL_IN, &(data->en_b), comp_id,
+	        "%s.axis.4.enable", prefix);
+	if (retval < 0) goto error;
+	*(data->en_b) = 0;
+
+	retval = hal_pin_u32_newf(HAL_IN, &(data->test), comp_id,
+	        "%s.test", prefix);
+	if (retval < 0) goto error;
+	*(data->test) = 0;
+
+	retval = hal_pin_u32_newf(HAL_IN, &(data->cnt), comp_id,
+	        "%s.cnt", prefix);
+	if (retval < 0) goto error;
+	*(data->cnt) = 0;
+
+	retval = hal_pin_bit_newf(HAL_IO, &(data->spi_fault), comp_id,
+	        "%s.spi_fault", prefix);
+	if (retval < 0) goto error;
+	*(data->spi_fault) = 0;
 error:
 	if (retval < 0) {
 		rtapi_print_msg(RTAPI_MSG_ERR,
@@ -237,7 +269,7 @@ error:
 
 	/* export functions */
 	rtapi_snprintf(name, sizeof(name), "%s.read", prefix);
-	retval = hal_export_funct(name, read_spi, spi_data, 1, 0, comp_id);
+	retval = hal_export_funct(name, read_spi, data, 1, 0, comp_id);
 	if (retval < 0) {
 		rtapi_print_msg(RTAPI_MSG_ERR,
 		        "%s: ERROR: read function export failed\n", modname);
@@ -246,7 +278,7 @@ error:
 	}
 	rtapi_snprintf(name, sizeof(name), "%s.write", prefix);
 	/* no FP operations */
-	retval = hal_export_funct(name, write_spi, spi_data, 0, 0, comp_id);
+	retval = hal_export_funct(name, write_spi, data, 0, 0, comp_id);
 	if (retval < 0) {
 		rtapi_print_msg(RTAPI_MSG_ERR,
 		        "%s: ERROR: write function export failed\n", modname);
@@ -254,7 +286,7 @@ error:
 		return -1;
 	}
 	rtapi_snprintf(name, sizeof(name), "%s.update", prefix);
-	retval = hal_export_funct(name, update, spi_data, 1, 0, comp_id);
+	retval = hal_export_funct(name, update, data, 1, 0, comp_id);
 	if (retval < 0) {
 		rtapi_print_msg(RTAPI_MSG_ERR,
 		        "%s: ERROR: update function export failed\n", modname);
@@ -274,20 +306,27 @@ void rtapi_app_exit(void) {
 	hal_exit(comp_id);
 }
 
-static inline void update_inputs(spi_data_t *spi) {
-	int n;
+static inline void update_inputs(data_t *dat) {	
+	s32 x;
 	
-	*(spi->x_lim) = (get_inputs() & 0b0000001) ? 1 : 0;
-	*(spi->y_lim) = (get_inputs() & 0b0000010) ? 1 : 0;
-	*(spi->z_lim) = (get_inputs() & 0b0000100) ? 1 : 0;
-	*(spi->abort) = (get_inputs() & 0b0001000) ? 1 : 0;
-	*(spi->hold) = (get_inputs() & 0b0010000) ? 1 : 0;
-	*(spi->resume) = (get_inputs() & 0b0100000) ? 1 : 0;
+	x = get_inputs();
+	
+	*(dat->x_min) = (x & 0b0000001) ? 1 : 0;
+	*(dat->x_max) = (x & 0b0000010) ? 1 : 0;
+	*(dat->y_min) = (x & 0b0000100) ? 1 : 0;
+	*(dat->y_max) = (x & 0b0001000) ? 1 : 0;
+	*(dat->z_min) = (x & 0b0010000) ? 1 : 0;
+	*(dat->z_max) = (x & 0b0100000) ? 1 : 0;
+
+	*(dat->adc_in[0]) = dat->adc_scale[0] * ((u32)get_adc(0) >> 16);
+	*(dat->adc_in[1]) = dat->adc_scale[1] * (get_adc(0) & 0xFFFF);
+	*(dat->adc_in[2]) = dat->adc_scale[2] * ((u32)get_adc(1) >> 16);
 }
 
 static void read_spi(void *arg, long period) {
 	int i;
-	spi_data_t *spi = (spi_data_t *)arg;
+	static int startup = 0;
+	data_t *dat = (data_t *)arg;
 
 	/* skip loading velocity command */
 	txBuf[0] = 0x444D4300;
@@ -304,10 +343,17 @@ static void read_spi(void *arg, long period) {
 	transfer_data();
 
 	/* sanity check */
-	if (rxBuf[0] == (0x444D433E ^ 0xFFFFFFFF))
-		*(spi->ready) = 1;
-	else
-		*(spi->ready) = 0;
+	if (rxBuf[0] == (0x444D433E ^ ~0)) {
+		*(dat->ready) = 1;
+	} else {
+		*(dat->ready) = 0;
+
+		if (!startup) 
+			startup = 1;
+		else {
+			*(dat->spi_fault) = 1;
+		}
+	}
 
 	/* check for change in period */
 	if (period != old_dtns) {
@@ -318,12 +364,12 @@ static void read_spi(void *arg, long period) {
 
 	/* check for scale change */
 	for (i = 0; i < NUMAXES; i++) {
-		if (spi->scale[i] != old_scale[i]) {
-			old_scale[i] = spi->scale[i];
+		if (dat->scale[i] != old_scale[i]) {
+			old_scale[i] = dat->scale[i];
 			/* scale must not be 0 */
-			if ((spi->scale[i] < 1e-20) && (spi->scale[i] > -1e-20))
-				spi->scale[i] = 1.0;
-			scale_inv[i] = (1.0 / (1L << STEPBIT)) / spi->scale[i];
+			if ((dat->scale[i] < 1e-20) && (dat->scale[i] > -1e-20))
+				dat->scale[i] = 1.0;
+			scale_inv[i] = (1.0 / (1L << STEPBIT)) / dat->scale[i];
 		}
 	}
 
@@ -335,39 +381,42 @@ static void read_spi(void *arg, long period) {
 		old_count[i] = get_position(i);
 		accum[i] += accum_diff;
 
-		*(spi->position_fb[i]) = (float)(accum[i]) * scale_inv[i];
+		*(dat->position_fb[i]) = (float)(accum[i]) * scale_inv[i];
 	}
 
-	/* update input status */
-	update_inputs(spi);
+	update_inputs(dat);
 }
 
 static void write_spi(void *arg, long period) {
 	transfer_data();
 }
 
-static inline void update_outputs(spi_data_t *spi) {
+static inline void update_outputs(data_t *dat) {
 	float duty;
 	int i;
+	u32 x[3];
 
-	txBuf[1+NUMAXES] = (*(spi->motor_en)    ? 1l : 0) << 0 |
-			   (*(spi->coolant_en)  ? 1l : 0) << 1 |
-			   (*(spi->spindle_en)  ? 1l : 0) << 2 |
-			   (*(spi->spindle_dir) ? 1l : 0) << 3 ;
+	txBuf[1 + NUMAXES] = (*(dat->en_x) ? 1l : 0) << 0 |
+				(*(dat->en_y) ? 1l : 0) << 1 |
+				(*(dat->en_z) ? 1l : 0) << 2 |
+				(*(dat->en_a) ? 1l : 0) << 3 |
+				(*(dat->en_b) ? 1l : 0) << 4 ;
 
 	/* update pwm */
-	for (i = 0; i < 2; i++) {
-		duty = *(spi->pwm_duty[i]) * spi->pwm_scale[i] * 0.01;
+	for (i = 0; i < 3; i++) {
+		duty = *(dat->pwm_duty[i]) * dat->pwm_scale[i] * 0.01;
 		if (duty < 0.0) duty = 0.0;
 		if (duty > 1.0) duty = 1.0;
 
-		txBuf[2+NUMAXES+i] = (duty * (1.0 + pwm_period));
+		x[i] = (duty * (1.0 + pwm_period));
 	}
+	txBuf[2+NUMAXES] = x[0] << 16 | x[1];
+	txBuf[3+NUMAXES] = x[2] << 16;
 }
 
 static void update(void *arg, long period) {
 	int i;
-	spi_data_t *spi = (spi_data_t *)arg;
+	data_t *dat = (data_t *)arg;
 	double max_accl, vel_cmd, dv, new_vel,
 	       dp, pos_cmd, curr_pos, match_accl, match_time, avg_v,
 	       est_out, est_cmd, est_err;
@@ -378,22 +427,22 @@ static void update(void *arg, long period) {
 		max_accl = max_vel * recip_dt;
 
 		/* check for user specified accel limit parameter */
-		if (spi->maxaccel[i] <= 0.0) {
+		if (dat->maxaccel[i] <= 0.0) {
 			/* set to zero if negative */
-			spi->maxaccel[i] = 0.0;
+			dat->maxaccel[i] = 0.0;
 		} else {
 			/* parameter is non-zero, compare to max_accl */
-			if ((spi->maxaccel[i] * fabs(spi->scale[i])) > max_accl) {
+			if ((dat->maxaccel[i] * fabs(dat->scale[i])) > max_accl) {
 				/* parameter is too high, lower it */
-				spi->maxaccel[i] = max_accl / fabs(spi->scale[i]);
+				dat->maxaccel[i] = max_accl / fabs(dat->scale[i]);
 			} else {
 				/* lower limit to match parameter */
-				max_accl = spi->maxaccel[i] * fabs(spi->scale[i]);
+				max_accl = dat->maxaccel[i] * fabs(dat->scale[i]);
 			}
 		}
 
 		/* calculate position command in counts */
-		pos_cmd = *(spi->position_cmd[i]) * spi->scale[i];
+		pos_cmd = *(dat->position_cmd[i]) * dat->scale[i];
 		/* calculate velocity command in counts/sec */
 		vel_cmd = (pos_cmd - old_pos[i]) * recip_dt;
 		old_pos[i] = pos_cmd;
@@ -415,7 +464,7 @@ static void update(void *arg, long period) {
 		match_time = (vel_cmd - old_vel[i]) / match_accl;
 		/* calc output position at the end of the match */
 		avg_v = (vel_cmd + old_vel[i]) * 0.5;
-		curr_pos = (double)(accum[i]) * (1.0 / STEP_MASK);
+		curr_pos = (double)(accum[i]) * (1.0 / (1L << STEPBIT));
 		est_out = curr_pos + avg_v * match_time;
 		/* calculate the expected command position at that time */
 		est_cmd = pos_cmd + vel_cmd * (match_time - 1.5 * dt);
@@ -463,9 +512,9 @@ static void update(void *arg, long period) {
 		update_velocity(i, (new_vel * VELSCALE));
 	}
 
-	update_outputs(spi);
+	update_outputs(dat);
 
-	/* this is a command (>CMD) */
+	/* this is a command (>CMD) sequence*/
 	txBuf[0] = 0x444D433E;
 }
 
@@ -476,6 +525,8 @@ void transfer_data() {
 	/* send txBuf */
 	tx = (char *)txBuf;
 	rx = (char *)rxBuf;
+	
+	/* KL25Z SPI expects that the CS is de-asserted after every byte transmission */
 	for (i=0; i<SPIBUFSIZE; i++) {
 
 		/* activate transfer */

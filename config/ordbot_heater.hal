@@ -1,0 +1,106 @@
+loadrt threads name1=pid-thread period1=1000000000
+loadrt lowpass count=2
+loadrt pid num_chan=2
+
+addf lowpass.0 servo-thread
+addf lowpass.1 servo-thread
+addf pid.0.do-pid-calcs pid-thread
+addf pid.1.do-pid-calcs pid-thread
+
+net extruder_temp_raw lowpass.0.in
+net extruder_in lowpass.0.out => pid.0.feedback
+
+net bed_temp_raw lowpass.1.in
+net bed_in lowpass.1.out => pid.1.feedback
+
+setp lowpass.0.gain [HEATER]EXT_ADC_FILTER
+setp lowpass.1.gain [HEATER]BED_ADC_FILTER
+
+setp pid.0.Pgain [HEATER]EXT_P
+setp pid.0.Dgain [HEATER]EXT_D
+setp pid.0.Igain [HEATER]EXT_I
+
+setp pid.1.Pgain [HEATER]BED_P
+setp pid.1.Dgain [HEATER]BED_D
+setp pid.1.Igain [HEATER]BED_I
+
+setp pid.0.maxerror 10
+setp pid.0.maxoutput 100
+
+setp pid.1.maxerror 10
+setp pid.1.maxoutput 100
+
+# PO - enable extruder heater
+# P1 - enable bed heater
+# P2 - extruder temp OK
+# P3 - bed temp OK
+# E0 - extruder temperature
+# E1 - bed temperature
+# E2 - cooling fan PWM duty
+
+#net enable_extruder pid.0.enable <= motion.digital-out-00
+net enable_extruder pid.0.enable
+sets enable_extruder 1
+
+net enable_bed pid.1.enable <= motion.digital-out-01
+net extruder_ok motion.digital-in-02 
+net bed_ok motion.digital-in-03
+
+net extruder_sp pid.0.command
+net bed_sp pid.1.command
+net fan_pwm_output motion.analog-out-02
+
+loadrt sum2 count=2
+loadrt wcomp count=2
+loadrt mux2 count=2
+loadrt offset count=2
+
+net extruder_sp_ofs offset.0.offset
+sets extruder_sp_ofs 0.0
+net extruder_sp_ofs_in motion.analog-out-00 offset.0.in
+net extruder_sp offset.0.out
+addf offset.0.update-output servo-thread
+
+net extruder_sp sum2.0.in0
+setp sum2.0.in1 -[HEATER]MIN_TEMP
+addf sum2.0 servo-thread
+
+net extruder_sp_min sum2.0.out => wcomp.0.min
+setp wcomp.0.max [HEATER]MAX_TEMP
+net extruder_in wcomp.0.in
+net extruder_ok wcomp.0.out
+net extruder_fault wcomp.0.over
+addf wcomp.0 servo-thread
+
+net extruder_fault mux2.0.sel
+net extruder_output mux2.0.out
+setp mux2.0.in1 0
+net extruder_mux mux2.0.in0 pid.0.output
+addf mux2.0 servo-thread
+
+net bed_sp_ofs offset.1.offset
+sets bed_sp_ofs 0.0
+net bed_sp_ofs_in motion.analog-out-01 offset.1.in
+net bed_sp offset.1.out
+addf offset.1.update-output servo-thread
+
+net bed_sp sum2.1.in0
+setp sum2.1.in1 -[HEATER]MIN_TEMP
+addf sum2.1 servo-thread
+
+net bed_sp_min sum2.1.out => wcomp.1.min
+setp wcomp.1.max [HEATER]MAX_TEMP
+net bed_in wcomp.1.in
+net bed_ok wcomp.1.out
+net bed_fault wcomp.1.over
+addf wcomp.1 servo-thread
+
+net bed_fault mux2.1.sel
+net bed_output mux2.1.out
+setp mux2.1.in1 0
+net bed_mux mux2.1.in0 pid.1.output
+addf mux2.1 servo-thread
+
+############
+
+loadusr halmeter

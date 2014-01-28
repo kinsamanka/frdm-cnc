@@ -18,12 +18,12 @@
 #ifndef __STEPGEN_H__
 #define __STEPGEN_H__
 
-#define MAXGEN		3
 #define STEPBIT		23
-#define STEP_MASK	(1L<<(STEPBIT-1))
+#define HALFSTEP_MASK	(1L<<(STEPBIT-1))
 #define DIR_MASK	(1L<<31)
 
 #define STEPWIDTH	1
+#define MAXGEN		4
 
 #define disable_int()								\
 	do {									\

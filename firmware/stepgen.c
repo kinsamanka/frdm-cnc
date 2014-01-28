@@ -100,7 +100,7 @@ void stepgen(void) {
 	for (i = 0; i < MAXGEN; i++) {
 
 		/* check if a step pulse can be generated */
-		stepready = (position[i] ^ oldpos[i]) & STEP_MASK;
+		stepready = (position[i] ^ oldpos[i]) & HALFSTEP_MASK;
 
 		/* generate a step pulse */
 		if (stepready) {
@@ -142,44 +142,52 @@ void stepgen(void) {
 
 __inline__ void step_hi(int i) {
 	if (i == 0)
-		STEPHI_X;
+		STEP_X_HI;
 	if (i == 1)
-		STEPHI_Y;
+		STEP_Y_HI;
 	if (i == 2)
-		STEPHI_Z;
+		STEP_Z_HI;
 	if (i == 3)
-		STEPHI_A;
+		STEP_A_HI;
+	if (i == 4)
+		STEP_B_HI;
 }
 
 __inline__ void step_lo(int i) {
 	if (i == 0)
-		STEPLO_X;
+		STEP_X_LO;
 	if (i == 1)
-		STEPLO_Y;
+		STEP_Y_LO;
 	if (i == 2)
-		STEPLO_Z;
+		STEP_Z_LO;
 	if (i == 3)
-		STEPLO_A;
+		STEP_A_LO;
+	if (i == 4)
+		STEP_B_LO;
 }
 
 __inline__ void dir_hi(int i) {
 	if (i == 0)
-		DIR_HI_X;
+		DIR_X_HI;
 	if (i == 1)
-		DIR_HI_Y;
+		DIR_Y_HI;
 	if (i == 2)
-		DIR_HI_Z;
+		DIR_Z_HI;
 	if (i == 3)
-		DIR_HI_A;
+		DIR_A_HI;
+	if (i == 4)
+		DIR_B_HI;
 }
 
 __inline__ void dir_lo(int i) {
 	if (i == 0)
-		DIR_LO_X;
+		DIR_X_LO;
 	if (i == 1)
-		DIR_LO_Y;
+		DIR_Y_LO;
 	if (i == 2)
-		DIR_LO_Z;
+		DIR_Z_LO;
 	if (i == 3)
-		DIR_LO_A;
+		DIR_A_LO;
+	if (i == 4)
+		DIR_B_LO;
 }

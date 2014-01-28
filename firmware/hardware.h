@@ -20,6 +20,64 @@
 
 #include <MKL25Z4.h>
 
+/*
+	Pin Usage:
+
+	output	- mega	- frdm
+	----------------------
+
+	STEP_X	- A0	- B0
+	DIR_X	- A1	- B1
+	EN_Y	- A2	- B2
+	EN_E0	- D24	- B9
+	STEP_E0	- D26	- B10
+	DIR_E0	- D28	- B11
+
+	LED	- D13	- D1
+	PS_ON	- D12	- D3
+
+	EN_E1	- D30	- E2
+	DIR_E1	- D34	- E3
+	STEP_E1	- D36	- E4
+	EN_X	- D38	- E5
+	STEP_Z	- D46	- E20
+	DIR_Z	- D48	- E21
+	STEP_Y	- A6	- E22
+	DIR_Y	- A7	- E23
+	EN_Z	- A8	- E29
+	
+	input	- mega	- frdm
+	----------------------
+
+	Y_MIN	- D4	- A4
+	Y_MAX	- D5	- A5
+	X_MIN	- D3	- A12
+	Z_MAX	- D19	- C10
+	Z_MIN	- D18	- C11
+	X_MAX	- D2	- D4
+
+	pwm	- mega	- frdm
+	----------------------
+
+	HTR_2	- D8	- A13
+	HTR_0	- D10	- D0
+	HTR_1	- D9	- D5
+
+	i2c	- mega	- frdm
+	----------------------
+
+	SDA	- D7	- C9
+	SCL	- D6	- C8
+
+	analog	- mega	- frdm
+	----------------------
+
+	THM_0	- A3	- B3
+	THM_2	- A5	- C1
+	THM_1	- A4	- C2
+
+*/
+
 #define RED		(18)
 #define RED_SHIFT	(1<<RED)
 
@@ -41,51 +99,53 @@
 #define BLUE_ON		(GPIOD_PCOR = BLUE_SHIFT)
 #define BLUE_TOGGLE	(GPIOD_PTOR = BLUE_SHIFT)
 
-#define REQ_IO_IN	(GPIOE_PDIR & (1<<5))
-#define ABORT_IO_IN	(GPIOB_PDIR & (1<<0))
-#define HOLD_IO_IN	(GPIOB_PDIR & (1<<1))
-#define RESUME_IO_IN	(GPIOB_PDIR & (1<<2))
-#define LIMY_IO_IN	(GPIOD_PDIR & (1<<0))
-#define LIMZ_IO_IN	(GPIOD_PDIR & (1<<2))
-#define LIMX_IO_IN	(GPIOD_PDIR & (1<<5))
+#define REQ_IN		(GPIOC_PDIR & (1<<3))
 
-#define RDY_IO_LO	(GPIOB_PCOR = (1<<11))
-#define RDY_IO_HI	(GPIOB_PSOR = (1<<11))
+#define RDY_LO		(GPIOC_PCOR = (1<<0))
+#define RDY_HI		(GPIOC_PSOR = (1<<0))
 
-#define ENABLE_IO_LO	(GPIOA_PCOR = (1<<13))
-#define ENABLE_IO_HI	(GPIOA_PSOR = (1<<13))
+#define X_MIN_IN	(GPIOA_PDIR & (1<<12))
+#define X_MAX_IN	(GPIOD_PDIR & (1<<4))
+#define Y_MIN_IN	(GPIOA_PDIR & (1<<4))
+#define Y_MAX_IN	(GPIOA_PDIR & (1<<5))
+#define Z_MIN_IN	(GPIOC_PDIR & (1<<11))
+#define Z_MAX_IN	(GPIOC_PDIR & (1<<10))
 
-#define COOLANT_IO_LO	(GPIOB_PCOR = (1<<3))
-#define COOLANT_IO_HI	(GPIOB_PSOR = (1<<3))
+#define EN_X_LO		(GPIOE_PCOR = (1<<5))
+#define EN_X_HI		(GPIOE_PSOR = (1<<5))
+#define EN_Y_LO		(GPIOB_PCOR = (1<<2))
+#define EN_Y_HI		(GPIOB_PSOR = (1<<2))
+#define EN_Z_LO		(GPIOE_PCOR = (1<<29))
+#define EN_Z_HI		(GPIOE_PSOR = (1<<29))
+#define EN_A_LO		(GPIOB_PCOR = (1<<9))
+#define EN_A_HI		(GPIOB_PSOR = (1<<9))
+#define EN_B_LO		(GPIOE_PCOR = (1<<2))
+#define EN_B_HI		(GPIOE_PSOR = (1<<2))
+#define LED_TOGGLE	(GPIOD_PTOR = (1<<1))
 
-#define SPINEN_IO_LO	(GPIOD_PCOR = (1<<3))
-#define SPINEN_IO_HI	(GPIOD_PSOR = (1<<3))
+#define STEP_X_HI	(GPIOB_PSOR = (1<<0))
+#define STEP_X_LO	(GPIOB_PCOR = (1<<0))
+#define DIR_X_HI	(GPIOB_PSOR = (1<<1))
+#define DIR_X_LO	(GPIOB_PCOR = (1<<1))
 
-#define SPINDIR_IO_LO	(GPIOD_PCOR = (1<<1))
-#define SPINDIR_IO_HI	(GPIOD_PSOR = (1<<1))
+#define STEP_Y_HI	(GPIOE_PSOR = (1<<22))
+#define STEP_Y_LO	(GPIOE_PCOR = (1<<22))
+#define DIR_Y_HI	(GPIOE_PSOR = (1<<23))
+#define DIR_Y_LO	(GPIOE_PCOR = (1<<23))
 
-#define STEPHI_X	(GPIOD_PSOR = (1<<4))
-#define STEPLO_X	(GPIOD_PCOR = (1<<4))
-#define DIR_HI_X	(GPIOA_PSOR = (1<<5))
-#define DIR_LO_X	(GPIOA_PCOR = (1<<5))
+#define STEP_Z_HI	(GPIOE_PSOR = (1<<20))
+#define STEP_Z_LO	(GPIOE_PCOR = (1<<20))
+#define DIR_Z_HI	(GPIOE_PSOR = (1<<21))
+#define DIR_Z_LO	(GPIOE_PCOR = (1<<21))
 
-#define STEPHI_Y	(GPIOA_PSOR = (1<<12))
-#define STEPLO_Y	(GPIOA_PCOR = (1<<12))
-#define DIR_HI_Y	(GPIOC_PSOR = (1<<8))
-#define DIR_LO_Y	(GPIOC_PCOR = (1<<8))
+#define STEP_A_HI	(GPIOB_PSOR = (1<<10))
+#define STEP_A_LO	(GPIOB_PCOR = (1<<10))
+#define DIR_A_HI	(GPIOB_PSOR = (1<<11))
+#define DIR_A_LO	(GPIOB_PCOR = (1<<11))
 
-#define STEPHI_Z	(GPIOA_PSOR = (1<<4))
-#define STEPLO_Z	(GPIOA_PCOR = (1<<4))
-#define DIR_HI_Z	(GPIOC_PSOR = (1<<9))
-#define DIR_LO_Z	(GPIOC_PCOR = (1<<9))
-
-#define STEPHI_A	(GPIOD_PSOR = (1<<3))
-#define STEPLO_A	(GPIOD_PCOR = (1<<3))
-#define DIR_HI_A	(GPIOD_PSOR = (1<<1))
-#define DIR_LO_A	(GPIOD_PCOR = (1<<1))
+#define STEP_B_HI	(GPIOE_PSOR = (1<<4))
+#define STEP_B_LO	(GPIOE_PCOR = (1<<4))
+#define DIR_B_HI	(GPIOE_PSOR = (1<<3))
+#define DIR_B_LO	(GPIOE_PCOR = (1<<3))
 
 #endif /* __HARDWARE_H__ */
-
-
-
-

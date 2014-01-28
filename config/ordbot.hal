@@ -1,0 +1,56 @@
+loadrt trivkins
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD base_cpu=0 num_joints=[TRAJ]AXES num_dio=[EMCMOT]DIGITAL_IO num_aio=[EMCMOT]ANALOG_IO 
+loadrt frdm_ramps
+
+addf frdm.read servo-thread
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+addf frdm.update servo-thread
+addf frdm.write servo-thread
+
+setp frdm.axis.0.scale [AXIS_0]SCALE
+setp frdm.axis.0.maxaccel [AXIS_0]STEPGEN_MAXACCEL
+
+net xpos-cmd axis.0.motor-pos-cmd => frdm.axis.0.position-cmd
+net xpos-fb frdm.axis.0.position-fb => axis.0.motor-pos-fb
+net xenable axis.0.amp-enable-out => frdm.axis.0.enable
+
+setp frdm.axis.1.scale [AXIS_1]SCALE
+setp frdm.axis.1.maxaccel [AXIS_1]STEPGEN_MAXACCEL
+
+net ypos-cmd axis.1.motor-pos-cmd => frdm.axis.1.position-cmd
+net ypos-fb frdm.axis.1.position-fb => axis.1.motor-pos-fb
+net yenable axis.1.amp-enable-out => frdm.axis.1.enable
+
+setp frdm.axis.2.scale [AXIS_2]SCALE
+setp frdm.axis.2.maxaccel [AXIS_2]STEPGEN_MAXACCEL
+
+net zpos-cmd axis.2.motor-pos-cmd => frdm.axis.2.position-cmd
+net zpos-fb frdm.axis.2.position-fb => axis.2.motor-pos-fb
+net zenable axis.2.amp-enable-out => frdm.axis.2.enable
+
+setp frdm.axis.3.scale [AXIS_3]SCALE
+setp frdm.axis.3.maxaccel [AXIS_3]STEPGEN_MAXACCEL
+
+net apos-cmd axis.3.motor-pos-cmd => frdm.axis.3.position-cmd
+net apos-fb frdm.axis.3.position-fb => axis.3.motor-pos-fb
+net aenable axis.3.amp-enable-out => frdm.axis.3.enable
+
+net estop-out <= iocontrol.0.user-enable-out
+net estop-out => iocontrol.0.emc-enable-in
+
+net Xhome frdm.axis.0.min => axis.0.home-sw-in axis.0.neg-lim-sw-in
+net Yhome frdm.axis.1.min => axis.1.home-sw-in axis.1.neg-lim-sw-in
+net Zhome frdm.axis.2.min => axis.2.home-sw-in axis.2.pos-lim-sw-in
+
+net bed_temp_raw frdm.adc.1.val
+net bed_output frdm.pwm.1.duty
+net extruder_temp_raw frdm.adc.0.val
+net extruder_output frdm.pwm.0.duty
+net fan_pwm_output frdm.pwm.2.duty
+
+setp frdm.adc.0.scale [HEATER]EXT_ADC_GAIN
+setp frdm.adc.1.scale [HEATER]BED_ADC_GAIN
+
+# set pwm range 0 - 255
+setp frdm.pwm.2.scale [HEATER]COOLER_PWM_SCALE
