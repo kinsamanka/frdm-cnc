@@ -306,10 +306,22 @@ void rtapi_app_exit(void) {
 	hal_exit(comp_id);
 }
 
+static s32 debounce(s32 A){
+	static s32 B = 0;
+	static s32 C = 0;
+	static s32 Z = 0;
+
+	Z = (Z & (A | B | C)) | (A & B & C);
+	C = B;
+	B = A;
+		
+	return Z;
+}
+
 static inline void update_inputs(data_t *dat) {	
 	s32 x;
 	
-	x = get_inputs();
+	x = debounce(get_inputs());
 	
 	*(dat->x_min) = (x & 0b0000001) ? 1 : 0;
 	*(dat->x_max) = (x & 0b0000010) ? 1 : 0;
