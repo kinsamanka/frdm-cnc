@@ -15,11 +15,11 @@
  *    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
-#ifndef FRDM_RAMPS_H
-#define FRDM_RAMPS_H
+#ifndef FRDM_GRBL_H
+#define FRDM_GRBL_H
 
 #define SPICLKDIV		16		/* ~15 Mhz */
-#define NUMAXES			4		/* X Y Z A*/
+#define NUMAXES			3		/* X Y Z */
 
 #define SPIBUFSIZE		32		/* SPI buffer size */
 #define BUFSIZE			(SPIBUFSIZE/4)

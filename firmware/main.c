@@ -28,16 +28,19 @@ static volatile uint32_t txBuf[BUFSIZE] __attribute__((aligned(32))),
 
 static volatile int spi_data_ready;
 
-static inline void enable_irq(int n) {
+static inline void enable_irq(int n)
+{
 	NVIC_ICPR |= 1 << ((n - 16)%32);
 	NVIC_ISER |= 1 << ((n - 16)%32);
 }
 
-static inline void disable_irq(int n) {
+static inline void disable_irq(int n)
+{
 	NVIC_ICER = 1 << ((n - 16)%32);
 }
 
-static void initLED(void) {
+static void initLED(void)
+{
 	/* enable port B & D clock*/
 	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK | SIM_SCGC5_PORTD_MASK;
 
@@ -54,7 +57,8 @@ static void initLED(void) {
 	GPIOD_PSOR = BLUE_SHIFT;
 }
 
-static void initPIT(void) {
+static void initPIT(void)
+{
 	/* enable PIT clock*/
 	SIM_SCGC6 |= SIM_SCGC6_PIT_MASK; // enable PIT module
 	
@@ -68,7 +72,8 @@ static void initPIT(void) {
 	PIT_TCTRL1 |= PIT_TCTRL_TEN_MASK;
 }
 
-static void initDMA(void) {
+static void initDMA(void)
+{
 	/* enable DMAMUX & DMA clock */
 	SIM_SCGC6 |= SIM_SCGC6_DMAMUX_MASK;
 	SIM_SCGC7 |= SIM_SCGC7_DMA_MASK;
@@ -112,7 +117,8 @@ static void initDMA(void) {
 	DMAMUX0_CHCFG1 |= DMAMUX_CHCFG_ENBL_MASK;
 }
 
-static void initSPI(void) {
+static void initSPI(void)
+{
 	/* enable SPI0 clock */
 	SIM_SCGC4 |= SIM_SCGC4_SPI0_MASK;
 	/* enable ports C clock */
@@ -134,256 +140,117 @@ static void initSPI(void) {
 	SPI0_C1 |= SPI_C1_SPE_MASK;
 }
 
-static void initGPIO(void) {
-	/* enable port A - E clock */
-	SIM_SCGC5 |= SIM_SCGC5_PORTA_MASK | SIM_SCGC5_PORTB_MASK |
-	        SIM_SCGC5_PORTC_MASK | SIM_SCGC5_PORTD_MASK |
-	        SIM_SCGC5_PORTE_MASK;
+static void initGPIO(void)
+{
+	/* enable port A - D clock */
+	SIM_SCGC5 |= SIM_SCGC5_PORTA_MASK | SIM_SCGC5_PORTB_MASK|
+	             SIM_SCGC5_PORTC_MASK | SIM_SCGC5_PORTD_MASK; 
 
 	/* inputs */
-	PORTA_PCR4 = PORT_PCR_MUX(1);	/* y min */
-	PORTA_PCR5 = PORT_PCR_MUX(1);	/* y max */
-	PORTA_PCR12 = PORT_PCR_MUX(1);	/* x min */
+	PORTB_PCR0 = PORT_PCR_MUX(1);	/* abort */
+	PORTB_PCR1 = PORT_PCR_MUX(1);	/* feed hold */
+	PORTB_PCR2 = PORT_PCR_MUX(1);	/* resume */
 	PORTC_PCR3 = PORT_PCR_MUX(1);	/* data request */
-	PORTC_PCR10 = PORT_PCR_MUX(1);	/* z max */
-	PORTC_PCR11 = PORT_PCR_MUX(1);	/* z min */
-	PORTD_PCR4 = PORT_PCR_MUX(1);	/* x max */
+	PORTD_PCR0 = PORT_PCR_MUX(1);	/* y limit */
+	PORTD_PCR2 = PORT_PCR_MUX(1);	/* z limit */
+	PORTD_PCR5 = PORT_PCR_MUX(1);	/* x limit */
 
 	/* Set the pins direction to input */
-	GPIOA_PDDR &= ~((1<<4)|(1<<5)|(1<<12));
-	GPIOC_PDDR &= ~((1<<3)|(1<<10)|(1<<11));
-	GPIOD_PDDR &= ~((1<<4));
+	GPIOB_PDDR &= ~((1<<0)|(1<<1)|(1<<2));
+	GPIOC_PDDR &= ~(1<<3);
+	GPIOD_PDDR &= ~((1<<0)|(1<<2)|(1<<5));
 
 	/* outputs */
-	PORTB_PCR0 = PORT_PCR_MUX(1);	/* step x */
-	PORTB_PCR1 = PORT_PCR_MUX(1);	/* dir x */
-	PORTB_PCR2 = PORT_PCR_MUX(1);	/* enable y */
-	PORTB_PCR9 = PORT_PCR_MUX(1);	/* enable e0*/
-	PORTB_PCR10 = PORT_PCR_MUX(1);	/* step e0*/
-	PORTB_PCR11 = PORT_PCR_MUX(1);	/* dir e0 */
-
+	PORTA_PCR4 = PORT_PCR_MUX(1);	/* step z */
+	PORTA_PCR5 = PORT_PCR_MUX(1);	/* dir x */
+	PORTA_PCR12 = PORT_PCR_MUX(1);	/* step y */
+	PORTA_PCR13 = PORT_PCR_MUX(1);	/* enable */
+	PORTB_PCR3 = PORT_PCR_MUX(1);	/* coolant */
 	PORTC_PCR0 = PORT_PCR_MUX(1);	/* data ready */
-
-	PORTD_PCR1 = PORT_PCR_MUX(1);	/* led */
-	PORTD_PCR3 = PORT_PCR_MUX(1);	/* ps_on */
-
-	PORTE_PCR2 = PORT_PCR_MUX(1);	/* enable e1 */
-	PORTE_PCR3 = PORT_PCR_MUX(1);	/* dir e1 */
-	PORTE_PCR4 = PORT_PCR_MUX(1);	/* step e1 */
-	PORTE_PCR5 = PORT_PCR_MUX(1);	/* enable x */
-	PORTE_PCR20 = PORT_PCR_MUX(1);	/* step z */
-	PORTE_PCR21 = PORT_PCR_MUX(1);	/* dir z */
-	PORTE_PCR22 = PORT_PCR_MUX(1);	/* step y */
-	PORTE_PCR23 = PORT_PCR_MUX(1);	/* dir y */
-	PORTE_PCR29 = PORT_PCR_MUX(1);	/* enable z */
+	PORTC_PCR8 = PORT_PCR_MUX(1);	/* dir y */
+	PORTC_PCR9 = PORT_PCR_MUX(1);	/* dir z */
+	PORTD_PCR1 = PORT_PCR_MUX(1);	/* dir a */
+	PORTD_PCR3 = PORT_PCR_MUX(1);	/* step a */
+	PORTD_PCR4 = PORT_PCR_MUX(1);	/* step x */
 
 	/* Set the initial output state to low */
-	GPIOB_PCOR = (1<<0)|(1<<1)|(1<<10)|(1<<11);
-	GPIOD_PCOR = (1<<1)|(1<<3);
-	GPIOE_PCOR = (1<<3)|(1<<4)|(1<<20)|(1<<21)|(1<<22)|(1<<23);
+	GPIOA_PCOR = (1<<4)|(1<<5)|(1<<12);
+	GPIOB_PCOR = (1<<3);
+	GPIOC_PCOR = (1<<8)|(1<<9);
+	GPIOD_PCOR = (1<<1)|(1<<3)|(1<<4);
 
-	/* enable lines and data ready active low */
-	GPIOB_PSOR = (1<<2)|(1<<9);
+	/* data ready active low */
 	GPIOC_PSOR = (1<<0);
-	GPIOE_PSOR = (1<<2)|(1<<5)|(1<<29);
+	/* motor enable active low */
+	GPIOA_PSOR = (1<<13);
 
 	/* Set the pins direction to output */
-	GPIOB_PDDR |= (1<<0)|(1<<1)|(1<<2)|(1<<9)|(1<<10)|(1<<11);
-	GPIOC_PDDR |= (1<<0);
-	GPIOD_PDDR |= (1<<1)|(1<<3);
-	GPIOE_PDDR |= (1<<2)|(1<<3)|(1<<4)|(1<<5)|(1<<20)|
-		(1<<21)|(1<<22)|(1<<23)|(1<<29);
+	GPIOA_PDDR |= (1<<4)|(1<<5)|(1<<12)|(1<<13);
+	GPIOB_PDDR |= (1<<3);
+	GPIOC_PDDR |= (1<<0)|(1<<8)|(1<<9);
+	GPIOD_PDDR |= (1<<1)|(1<<3)|(1<<4);
 }
 
-static void initADC(void) {
-	uint32_t x;
-	
-	/* enable ADC clock */
-	SIM_SCGC6 |= SIM_SCGC6_ADC0_MASK;
-	/* enable port B & C clock */
-	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK | SIM_SCGC5_PORTC_MASK;
-
-	/* set ports as analog */
-	PORTB_PCR3 = PORT_PCR_MUX(0);	/* ADC0_SE13 - SC1n[ADCH] = 01101 */
-	PORTC_PCR2 = PORT_PCR_MUX(0);	/* ADC0_SE11 - SC1n[ADCH] = 01011 */
-	PORTC_PCR1 = PORT_PCR_MUX(0);	/* ADC0_SE15 - SC1n[ADCH] = 01111 */
-
-	/* 16 bits, long sample time, using asynchronous clock */
-	ADC0_CFG1 = 0x1F;
-
-	/* enable asynchronous clock output and slowest adc sampling */
-	ADC0_CFG2 = 0x08;
-	
-	/* software triggered and default voltage reference pins */
-	ADC0_SC2 = 0x00;
-	
-	/* single conversion, 32 samples averaged */
-	ADC0_SC3 = 0x07;
-
-	/* start adc calibration */
-	ADC0_SC3 |= 1<<7;
-	
-	/* wait until done */
-	while (ADC0_SC3 & 1<<7);
-	
-	/* check if failed */
-	if (ADC0_SC3 & 1<<6) {
-		RED_ON;
-	} else {
-	
-		x = ADC0_CLPS + ADC0_CLP0 + ADC0_CLP1 + ADC0_CLP2 + ADC0_CLP3 + ADC0_CLP4;
-		x = (x >> 1) | 0x8000;
-		ADC0_PG = x;
-		
-		x = ADC0_CLMS + ADC0_CLM0 + ADC0_CLM1 + ADC0_CLM2 + ADC0_CLM3 + ADC0_CLM4;
-		x = (x >> 1) | 0x8000;
-		ADC0_MG = x;
-	}
-}
-
-static void initPWM(void) {
-	/* TPM clock at 8 MHz */
-	
-	/* enable TPM0 and TPM1 clock */
-	SIM_SCGC6 |= SIM_SCGC6_TPM0_MASK | SIM_SCGC6_TPM1_MASK;                                   
-	/* enable port A & D clock */
-	SIM_SCGC5 |= SIM_SCGC5_PORTA_MASK | SIM_SCGC5_PORTD_MASK;
-	
-	/* setup TPM0 */
-	TPM0_SC = 0;
-	TPM0_CNT = 0;
-	TPM0_C0SC = 0;
-	TPM0_C5SC = 0;
-	/* Set up modulo register */
-	TPM0_MOD = TPM_MOD_MOD(0x3E80);
-	/* Edge-aligned PWM */
-	TPM0_C0SC = TPM_CnSC_MSB_MASK | TPM_CnSC_ELSB_MASK;
-	TPM0_C0V = 0;
-	/* Edge-aligned PWM */
-	TPM0_C5SC = TPM_CnSC_MSB_MASK | TPM_CnSC_ELSB_MASK;
-	TPM0_C5V = 0;
-
-	/* enable output pins */
-	PORTD_PCR0 = PORT_PCR_MUX(0x04);
-	PORTD_PCR5 = PORT_PCR_MUX(0x04);
-	
-	/* use TPM clock prescale by 1 */
-	TPM0_SC = (TPM_SC_CMOD(0x01) | TPM_SC_PS(0x00)); 
-  
-	/* setup TPM1 */
-	TPM1_SC = 0;
-	TPM1_CNT = 0;
-	TPM1_C1SC = 0;
-	/* Set up modulo register */
-	TPM1_MOD = TPM_MOD_MOD(0x3E80);
-	/* Edge-aligned PWM */
-#if 0
-	TPM1_C1SC = TPM_CnSC_MSB_MASK | TPM_CnSC_ELSB_MASK;
-#else
-	TPM1_C1SC = TPM_CnSC_MSB_MASK | TPM_CnSC_ELSB_MASK | TPM_CnSC_ELSA_MASK; /* active low */
-#endif
-	TPM1_C1V = 0;
-
-	/* enable output pin */
-	PORTA_PCR13 = PORT_PCR_MUX(0x03);
-
-	/* use TPM clock prescale by 1 */
-	TPM1_SC = (TPM_SC_CMOD(0x01) | TPM_SC_PS(0x00));  
-}
-
-static void initI2C(void) {
-	SIM_SCGC4 |= SIM_SCGC4_I2C0_MASK;                                   
-	I2C0_C1 = 0x00U;                     /* Clear control register */
-	I2C0_FLT = (I2C_FLT_STOPF_MASK | I2C_FLT_FLT(0x00)); /* Clear bus status interrupt flags */
-	I2C0_S = I2C_S_IICIF_MASK;           /* Clear interrupt flag */
-	PORTC_PCR9 = PORT_PCR_MUX(0x02);
-	PORTC_PCR8 = PORT_PCR_MUX(0x02);
-	I2C0_C2 = I2C_C2_AD(0x00);                                   
-	I2C0_FLT = I2C_FLT_FLT(0x00);        /* Set glitch filter register */
-	I2C0_SMB = I2C_SMB_SLTF_MASK;                                   
-	I2C0_F = (I2C_F_MULT(0x00) | I2C_F_ICR(0x00)); /* Set prescaler bits */
-}
-
-static uint32_t read_inputs(void) {
+static uint32_t read_inputs(void)
+{
 	uint32_t x;
 
-	x  = (X_MIN_IN ? 1 : 0) << 0;
-	x |= (X_MAX_IN ? 1 : 0) << 1;
-	x |= (Y_MIN_IN ? 1 : 0) << 2;
-	x |= (Y_MAX_IN ? 1 : 0) << 3;
-	x |= (Z_MIN_IN ? 1 : 0) << 4;
-	x |= (Z_MAX_IN ? 1 : 0) << 5;
+	x  = (X_LIM_IN ? 1 : 0) << 0;
+	x |= (Y_LIM_IN ? 1 : 0) << 1;
+	x |= (Z_LIM_IN ? 1 : 0) << 2;
+	x |= (ABORT_IN ? 1 : 0) << 3;
+	x |= (FHOLD_IN ? 1 : 0) << 4;
+	x |= (RSUME_IN ? 1 : 0) << 5;
 
 	return x;
 }
 
-static void update_outputs(uint32_t x) {
+static void update_outputs(uint32_t x)
+{
 	if (x & (1 << 0))
-		EN_X_LO;
+		ENABLE_LO;
 	else
-		EN_X_HI;
+		ENABLE_HI;
 	
 	if (x & (1 << 1))
-		EN_Y_LO;
+		COOLANT_HI;
 	else
-		EN_Y_HI;
+		COOLANT_LO;
 	
-	if (x & (1 << 2))
-		EN_Z_LO;
-	else
-		EN_Z_HI;
-	
-	if (x & (1 << 3))
-		EN_A_LO;
-	else
-		EN_A_HI;
-	
-	if (x & (1 << 4))
-		EN_B_LO;
-	else
-		EN_B_HI;
+	/* Spindle enable/dir signals are available
+	   only when A axis is disabled */
+	if (MAXGEN == 3) {
+		if (x & (1 << 2))
+			SPINEN_HI;
+		else
+			SPINEN_LO;
+		
+		if (x & (1 << 3))
+			SPINDIR_HI;
+		else
+			SPINDIR_LO;
+	}
 }
 
-static inline void update_pwm_period(uint32_t val) {
-	TPM0_MOD = TPM_MOD_MOD(val);
-	TPM1_MOD = TPM_MOD_MOD(val);
-}
-
-static inline void update_pwm_duty(uint32_t *val) {
-	TPM0_C0V = *(val) >> 16 ;
-	TPM0_C5V = *(val) & 0xFFFF;
-	TPM1_C1V = *(val+1) >> 16;
-}
-
-static void reset_board(void) {
+static void reset_board(void)
+{
 	stepgen_reset();
 
-	/* axis enable active low */
-	EN_X_HI;
-	EN_Y_HI;
-	EN_Z_HI;
-	EN_A_HI;
-	EN_B_HI;
-	
-	/* turn off pwm */
-	TPM0_C0V = 0;
-	TPM0_C5V = 0;
-	TPM1_C1V = 0;
+	ENABLE_HI;	/* motors enable active low */
+	COOLANT_LO;
+	SPINEN_LO;
 }
 
-int main(void) {
-	unsigned long counter, i, chan = 0;
+int main(void)
+{
+	unsigned long counter, i;
 	int spi_timeout;
-	uint32_t adc[4] = { 0 };
 
 	initGPIO();
 	initLED();
 	initPIT();
 	initDMA();
 	initSPI();
-	initADC();
-	initPWM();
-	initI2C();
 	
 	reset_board();
 	spi_data_ready = 0;
@@ -392,25 +259,6 @@ int main(void) {
 	
 	/* main loop */
 	while (1) {
-
-		/* start adc conversion */
-		if (!(ADC0_SC2 & (1 << 7))) {
-			/* read results */
-			adc[chan++] = ADC0_RA;
-			/* start another conversion */
-			switch (chan) {
-			case 1:
-				ADC0_SC1A = 0x0B;
-				break;
-			case 2:
-				ADC0_SC1A = 0x0F;
-				break;
-			case 3:
-				ADC0_SC1A = 0x0D;
-				chan = 0;
-				break;
-			}
-		}
 		
 		/* process incoming data request,
 		   transfer valid data to txBuf */
@@ -419,9 +267,6 @@ int main(void) {
 
 			/* read inputs */
 			txBuf[1+MAXGEN] = read_inputs();
-			/* adc readings */
-			txBuf[2+MAXGEN] = adc[0] << 16 | adc[1];
-			txBuf[3+MAXGEN] = adc[2] << 16;
 
 			RDY_LO;
 		} else {
@@ -443,11 +288,9 @@ int main(void) {
 			case 0x444D433E:	/* >CMD */
 				stepgen_update_input((const void *)&rxBuf[1]);
 				update_outputs(rxBuf[1+MAXGEN]);
-				update_pwm_duty((uint32_t *)&rxBuf[2+MAXGEN]);
 				break;
 			case 0x4746433E:	/* >CFG */
 				stepgen_update_stepwidth(rxBuf[1]);
-				update_pwm_period(rxBuf[2]);
 				stepgen_reset();
 				break;
 			case 0x5453543E:	/* >TST */
@@ -465,7 +308,7 @@ int main(void) {
 
 		/* blink onboard led */
 		if (!(counter++ % (spi_timeout ? 0xA000 : 0xF000))) {
-			LED_TOGGLE;
+			GREEN_TOGGLE;
 		}
 		
 		/* reset watchdog sequence*/
@@ -476,13 +319,15 @@ int main(void) {
 }
 
 __attribute__((interrupt("IRQ")))
-void PIT_IRQHandler(void) {
+void PIT_IRQHandler(void)
+{
 	PIT_TFLG1 |= PIT_TFLG_TIF_MASK;
 	stepgen();
 }
 
 __attribute__((interrupt("IRQ")))
-void DMA0_IRQHandler(void) {
+void DMA0_IRQHandler(void)
+{
 
 	/* disable SPI */
 	SPI0_C1 &= ~SPI_C1_SPE_MASK;

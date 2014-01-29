@@ -27,7 +27,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "frdm_ramps.h"
+#include "frdm_grbl.h"
 
 #if !defined(BUILD_SYS_USER_DSO)
 #error "This driver is for usermode threads only"
@@ -41,29 +41,29 @@
 #define PREFIX "frdm"
 
 MODULE_AUTHOR("GP Orcullo");
-MODULE_DESCRIPTION("Driver for FRDM-KL25Z board with RAMPS1.4s connected to a Raspberry Pi using SPI");
+MODULE_DESCRIPTION("Driver for FRDM-KL25Z board with GRBL compatible shield connected to Raspberry Pi using SPI");
 MODULE_LICENSE("GPL v2");
 
 static int stepwidth = 1;
 RTAPI_MP_INT(stepwidth, "Step width in 1/BASEFREQ");
 
-static long pwmfreq = 500;
-RTAPI_MP_LONG(pwmfreq, "PWM frequency in Hz");
-
 typedef struct {
 	hal_float_t *position_cmd[NUMAXES],
-	            *position_fb[NUMAXES],
-	            *pwm_duty[3],
-		    *adc_in[3];
-	hal_bit_t   *x_min, *y_min, *z_min,
-		    *x_max, *y_max, *z_max,
-		    *en_x, *en_y, *en_z,
-		    *en_a, *en_b,
-	            *ready, *spi_fault;
+	            *position_fb[NUMAXES];
+	hal_bit_t   *x_lim,
+		    *y_lim,
+		    *z_lim,
+		    *spindle_en,
+		    *spindle_dir,
+	            *motor_en,
+		    *coolant_en,
+		    *abort,
+		    *hold,
+		    *resume,
+	            *ready,
+		    *spi_fault;
 	hal_float_t scale[NUMAXES],
-	            maxaccel[NUMAXES],
-	            adc_scale[3],
-		    pwm_scale[3];
+	            maxaccel[NUMAXES];
 	hal_u32_t   *test, *cnt;
 } data_t;
 
@@ -79,15 +79,15 @@ volatile s32 txBuf[BUFSIZE], rxBuf[BUFSIZE];
 static int pwm_period = 0;
 
 static double dt = 0,				/* update_freq period in seconds */
-              recip_dt = 0,			/* reciprocal of period, avoids divides */
-              scale_inv[NUMAXES] = { 1.0 },	/* inverse of scale */
-              old_vel[NUMAXES] = { 0 },
-              old_pos[NUMAXES] = { 0 },
-              old_scale[NUMAXES] = { 0 },
-              max_vel;
+	recip_dt = 0,				/* reciprocal of period, avoids divides */
+	scale_inv[NUMAXES] = { 1.0 },		/* inverse of scale */
+	old_vel[NUMAXES] = { 0 },
+	old_pos[NUMAXES] = { 0 },
+	old_scale[NUMAXES] = { 0 },
+	max_vel;
 static long old_dtns = 0;			/* update_freq funct period in nsec */
 static s32 accum_diff = 0,
-           old_count[NUMAXES] = { 0 };
+	old_count[NUMAXES] = { 0 };
 static s64 accum[NUMAXES] = { 0 };		/* 64 bit DDS accumulator */
 
 static void read_spi(void *arg, long period);
@@ -99,7 +99,8 @@ static int map_gpio();
 static void setup_gpio();
 static void restore_gpio();
 
-int rtapi_app_main(void) {
+int rtapi_app_main(void)
+{
 	char name[HAL_NAME_LEN + 1];
 	int n, retval;
 
@@ -130,11 +131,8 @@ int rtapi_app_main(void) {
 
 	setup_gpio();
 
-	pwm_period = (8000000ul/pwmfreq);
-
 	txBuf[0] = 0x4746433E;			/* this is config data (>CFG) */
 	txBuf[1] = stepwidth;
-	txBuf[2] = pwm_period - 1;
 	transfer_data();			/* send config data */
 
 	max_vel = BASEFREQ/(4.0 * stepwidth);	/* calculate velocity limit */
@@ -162,87 +160,60 @@ int rtapi_app_main(void) {
 		data->maxaccel[n] = 1.0;
 	}
 
-	for (n=0; n < 3; n++) {
-		retval = hal_pin_float_newf(HAL_IN, &(data->pwm_duty[n]),
-		        comp_id, "%s.pwm.%01d.duty", prefix, n);
-		if (retval < 0) goto error;
-		*(data->pwm_duty[n]) = 0.0;
-
-		retval = hal_param_float_newf(HAL_RW, &(data->pwm_scale[n]),
-			comp_id,"%s.pwm.%01d.scale", prefix);
-		if (retval < 0) goto error;
-		data->pwm_scale[n] = 1.0;
-
-		retval = hal_param_float_newf(HAL_RW, &(data->adc_scale[n]),
-			comp_id,"%s.adc.%01d.scale", prefix);
-		if (retval < 0) goto error;
-		data->adc_scale[n] = 1.0;
-
-		retval = hal_pin_float_newf(HAL_OUT, &(data->adc_in[n]),
-		        comp_id, "%s.adc.%01d.val", prefix, n);
-		if (retval < 0) goto error;
-		*(data->adc_in[n]) = 0.0;
-	}
-
 	retval = hal_pin_bit_newf(HAL_OUT, &(data->ready), comp_id,
 	        "%s.ready", prefix);
 	if (retval < 0) goto error;
 	*(data->ready) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->x_min), comp_id,
-	        "%s.axis.0.min", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->abort), comp_id,
+	        "%s.pin.abort", prefix);
 	if (retval < 0) goto error;
-	*(data->x_min) = 0;
+	*(data->abort) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->x_max), comp_id,
-	        "%s.axis.0.max", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->hold), comp_id,
+	        "%s.pin.hold", prefix);
 	if (retval < 0) goto error;
-	*(data->x_max) = 0;
+	*(data->hold) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->y_min), comp_id,
-	        "%s.axis.1.min", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->resume), comp_id,
+	        "%s.pin.resume", prefix);
 	if (retval < 0) goto error;
-	*(data->y_min) = 0;
+	*(data->resume) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->y_max), comp_id,
-	        "%s.axis.1.max", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->x_lim), comp_id,
+	        "%s.axis.0.limit", prefix);
 	if (retval < 0) goto error;
-	*(data->y_max) = 0;
+	*(data->x_lim) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->z_min), comp_id,
-	        "%s.axis.2.min", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->y_lim), comp_id,
+	        "%s.axis.1.limit", prefix);
 	if (retval < 0) goto error;
-	*(data->z_min) = 0;
+	*(data->y_lim) = 0;
 
-	retval = hal_pin_bit_newf(HAL_OUT, &(data->z_max), comp_id,
-	        "%s.axis.2.max", prefix);
+	retval = hal_pin_bit_newf(HAL_OUT, &(data->z_lim), comp_id,
+	        "%s.axis.2.limit", prefix);
 	if (retval < 0) goto error;
-	*(data->z_max) = 0;
+	*(data->z_lim) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(data->en_x), comp_id,
-	        "%s.axis.0.enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->spindle_en), comp_id,
+	        "%s.spindle.enable", prefix);
 	if (retval < 0) goto error;
-	*(data->en_x) = 0;
+	*(data->spindle_en) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(data->en_y), comp_id,
-	        "%s.axis.1.enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->spindle_dir), comp_id,
+	        "%s.spindle.direction", prefix);
 	if (retval < 0) goto error;
-	*(data->en_y) = 0;
+	*(data->spindle_dir) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(data->en_z), comp_id,
-	        "%s.axis.2.enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->motor_en), comp_id,
+	        "%s.motor.enable", prefix);
 	if (retval < 0) goto error;
-	*(data->en_z) = 0;
+	*(data->motor_en) = 0;
 
-	retval = hal_pin_bit_newf(HAL_IN, &(data->en_a), comp_id,
-	        "%s.axis.3.enable", prefix);
+	retval = hal_pin_bit_newf(HAL_IN, &(data->coolant_en), comp_id,
+	        "%s.coolant.enable", prefix);
 	if (retval < 0) goto error;
-	*(data->en_a) = 0;
-
-	retval = hal_pin_bit_newf(HAL_IN, &(data->en_b), comp_id,
-	        "%s.axis.4.enable", prefix);
-	if (retval < 0) goto error;
-	*(data->en_b) = 0;
+	*(data->coolant_en) = 0;
 
 	retval = hal_pin_u32_newf(HAL_IN, &(data->test), comp_id,
 	        "%s.test", prefix);
@@ -299,14 +270,16 @@ error:
 	return 0;
 }
 
-void rtapi_app_exit(void) {
+void rtapi_app_exit(void)
+{
 	restore_gpio();
 	munmap((void *)gpio,BLOCK_SIZE);
 	munmap((void *)spi,BLOCK_SIZE);
 	hal_exit(comp_id);
 }
 
-static s32 debounce(s32 A){
+static s32 debounce(s32 A)
+{
 	static s32 B = 0;
 	static s32 C = 0;
 	static s32 Z = 0;
@@ -318,24 +291,22 @@ static s32 debounce(s32 A){
 	return Z;
 }
 
-static inline void update_inputs(data_t *dat) {	
+static inline void update_inputs(data_t *dat)
+{	
 	s32 x;
 	
 	x = debounce(get_inputs());
 	
-	*(dat->x_min) = (x & 0b0000001) ? 1 : 0;
-	*(dat->x_max) = (x & 0b0000010) ? 1 : 0;
-	*(dat->y_min) = (x & 0b0000100) ? 1 : 0;
-	*(dat->y_max) = (x & 0b0001000) ? 1 : 0;
-	*(dat->z_min) = (x & 0b0010000) ? 1 : 0;
-	*(dat->z_max) = (x & 0b0100000) ? 1 : 0;
-
-	*(dat->adc_in[0]) = dat->adc_scale[0] * ((u32)get_adc(0) >> 16);
-	*(dat->adc_in[1]) = dat->adc_scale[1] * (get_adc(0) & 0xFFFF);
-	*(dat->adc_in[2]) = dat->adc_scale[2] * ((u32)get_adc(1) >> 16);
+	*(dat->x_lim) = (x & 0b0000001) ? 1 : 0;
+	*(dat->y_lim) = (x & 0b0000010) ? 1 : 0;
+	*(dat->z_lim) = (x & 0b0000100) ? 1 : 0;
+	*(dat->abort) = (x & 0b0001000) ? 1 : 0;
+	*(dat->hold) = (x & 0b0010000) ? 1 : 0;
+	*(dat->resume) = (x & 0b0100000) ? 1 : 0;
 }
 
-static void read_spi(void *arg, long period) {
+static void read_spi(void *arg, long period)
+{
 	int i;
 	static int startup = 0;
 	data_t *dat = (data_t *)arg;
@@ -399,34 +370,21 @@ static void read_spi(void *arg, long period) {
 	update_inputs(dat);
 }
 
-static void write_spi(void *arg, long period) {
+static void write_spi(void *arg, long period)
+{
 	transfer_data();
 }
 
-static inline void update_outputs(data_t *dat) {
-	float duty;
-	int i;
-	u32 x[3];
-
-	txBuf[1 + NUMAXES] = (*(dat->en_x) ? 1l : 0) << 0 |
-				(*(dat->en_y) ? 1l : 0) << 1 |
-				(*(dat->en_z) ? 1l : 0) << 2 |
-				(*(dat->en_a) ? 1l : 0) << 3 |
-				(*(dat->en_b) ? 1l : 0) << 4 ;
-
-	/* update pwm */
-	for (i = 0; i < 3; i++) {
-		duty = *(dat->pwm_duty[i]) * dat->pwm_scale[i] * 0.01;
-		if (duty < 0.0) duty = 0.0;
-		if (duty > 1.0) duty = 1.0;
-
-		x[i] = (duty * (1.0 + pwm_period));
-	}
-	txBuf[2+NUMAXES] = x[0] << 16 | x[1];
-	txBuf[3+NUMAXES] = x[2] << 16;
+static inline void update_outputs(data_t *dat)
+{
+	txBuf[1+NUMAXES] = (*(dat->motor_en)    ? 1l : 0) << 0 |
+			   (*(dat->coolant_en)  ? 1l : 0) << 1 |
+			   (*(dat->spindle_en)  ? 1l : 0) << 2 |
+			   (*(dat->spindle_dir) ? 1l : 0) << 3 ;
 }
 
-static void update(void *arg, long period) {
+static void update(void *arg, long period)
+{
 	int i;
 	data_t *dat = (data_t *)arg;
 	double max_accl, vel_cmd, dv, new_vel,
@@ -530,7 +488,8 @@ static void update(void *arg, long period) {
 	txBuf[0] = 0x444D433E;
 }
 
-void transfer_data() {
+void transfer_data()
+{
 	char *tx, *rx;
 	int i;
 	
@@ -556,7 +515,8 @@ void transfer_data() {
 	}
 }
 
-int map_gpio() {
+int map_gpio()
+{
 	int fd;
 
 	fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -612,7 +572,8 @@ int map_gpio() {
  *
  */
 
-void setup_gpio() {
+void setup_gpio()
+{
 	u32 x;
 
 	/* data ready GPIO 25, input */
@@ -649,7 +610,8 @@ void setup_gpio() {
 	BCM2835_SPICS |= SPI_CS_DONE;
 }
 
-void restore_gpio() {
+void restore_gpio()
+{
 	u32 x;
 
 	/* change all used pins back to inputs */
