@@ -37,7 +37,7 @@
 #error "This driver is currently for the Raspberry Pi platform only"
 #endif
 
-#define MODNAME "frdm_ramps"
+#define MODNAME "frdm_grbl"
 #define PREFIX "frdm"
 
 MODULE_AUTHOR("GP Orcullo");
@@ -76,7 +76,6 @@ static const char *prefix = PREFIX;
 volatile unsigned *gpio, *spi;
 
 volatile s32 txBuf[BUFSIZE], rxBuf[BUFSIZE];
-static int pwm_period = 0;
 
 static double dt = 0,				/* update_freq period in seconds */
 	recip_dt = 0,				/* reciprocal of period, avoids divides */

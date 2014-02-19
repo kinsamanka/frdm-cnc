@@ -18,7 +18,7 @@
 #ifndef FRDM_GRBL_H
 #define FRDM_GRBL_H
 
-#define SPICLKDIV		16		/* ~15 Mhz */
+#define SPICLKDIV		32		/* ~8 Mhz */
 #define NUMAXES			3		/* X Y Z */
 
 #define SPIBUFSIZE		32		/* SPI buffer size */
